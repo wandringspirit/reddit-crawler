@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reddit Crawler</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔎</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-icon">🔎</span>
+    <div>
+      <h1>Reddit Crawler</h1>
+      <div class="subtitle">Find posts &amp; comments by keyword and timeframe</div>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span id="backend-pill" class="pill" title="Data source status">…</span>
+    <button class="btn ghost" id="btn-history">History</button>
+    <button class="btn ghost" id="btn-settings">Settings</button>
+    <button class="btn ghost" id="btn-help">Help</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ============================ left: search setup ============================ -->
+  <aside class="panel setup">
+    <section class="card">
+      <h2>1. Subreddits</h2>
+      <textarea id="subreddits" rows="3" placeholder="smallbusiness, Entrepreneur, webdev&#10;(comma or newline separated)"></textarea>
+      <div class="row gap">
+        <input id="sub-search" type="text" placeholder="Find subreddits by name…">
+        <button class="btn small" id="btn-sub-search">Find</button>
+      </div>
+      <div id="sub-results" class="sub-results hidden"></div>
+    </section>
+
+    <section class="card">
+      <h2>2. Keywords</h2>
+      <div class="row gap">
+        <select id="kw-select" title="Saved keyword sets"></select>
+        <button class="btn small ghost" id="btn-kw-delete" title="Delete this saved set">🗑</button>
+      </div>
+      <label class="field">
+        <span>Set name</span>
+        <input id="kw-name" type="text" placeholder="e.g. People who want a website built">
+      </label>
+      <label class="field">
+        <span>Search phrases <em>(matches if ANY of these appear)</em></span>
+        <textarea id="kw-include" rows="7" placeholder="need a website&#10;looking for a web developer&#10;how much does a website cost"></textarea>
+      </label>
+      <label class="field">
+        <span>Must also contain <em>(at least one — optional)</em></span>
+        <textarea id="kw-require" rows="3" placeholder="website&#10;landing page&#10;online store"></textarea>
+      </label>
+      <label class="field">
+        <span>Exclude <em>(skip if ANY of these appear)</em></span>
+        <textarea id="kw-exclude" rows="3" placeholder="for hire&#10;title: [hiring]&#10;my portfolio"></textarea>
+      </label>
+      <details class="hint">
+        <summary>Keyword syntax</summary>
+        <ul>
+          <li>One phrase per line. Matching is case-insensitive and whole-word: <code>need a website</code> also matches “need a web-site” and “Need A Website”.</li>
+          <li><code>recommend*</code> — trailing <code>*</code> matches any ending (recommend, recommends, recommendation).</li>
+          <li><code>/regex/</code> — a regular expression, e.g. <code>/how much .{0,30} website/</code>. Add a name after it (<code>/…/ price question</code>) to show that name in the results.</li>
+          <li><code>title: …</code> or <code>text: …</code> — only look in the title or the body.</li>
+          <li>Lines starting with <code>#</code> are comments.</li>
+        </ul>
+      </details>
+      <div class="row gap wrap options">
+        <label class="check"><input type="checkbox" id="kw-whole" checked> Whole words</label>
+        <label class="check"><input type="checkbox" id="kw-plural" checked> Plural tolerant</label>
+        <label class="check"><input type="checkbox" id="kw-case"> Case sensitive</label>
+      </div>
+      <label class="field">
+        <span>Ignore authors</span>
+        <input id="kw-authors" type="text" placeholder="AutoModerator" value="AutoModerator">
+      </label>
+      <div class="row gap">
+        <button class="btn small" id="btn-kw-save">Save set</button>
+        <button class="btn small ghost" id="btn-kw-saveas">Save as new</button>
+        <button class="btn small ghost" id="btn-kw-test-toggle">Test</button>
+      </div>
+      <div id="kw-test" class="kw-test hidden">
+        <textarea id="kw-test-text" rows="3" placeholder="Paste a sample post or comment to see whether it matches…"></textarea>
+        <div class="row gap">
+          <button class="btn small" id="btn-kw-test">Check match</button>
+          <span id="kw-test-result" class="muted"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. Timeframe</h2>
+      <div id="presets" class="segmented"></div>
+      <div id="custom-range" class="custom-range hidden">
+        <label class="field"><span>From</span><input type="datetime-local" id="tf-start"></label>
+        <label class="field"><span>To</span><input type="datetime-local" id="tf-end"></label>
+        <div class="muted small">Times are in your local timezone (<span id="tz-name"></span>).</div>
+      </div>
+      <div id="tf-preview" class="muted small"></div>
+    </section>
+
+    <section class="card">
+      <h2>4. What to search</h2>
+      <div class="row gap wrap">
+        <label class="check"><input type="checkbox" id="target-posts" checked> Posts</label>
+        <label class="check"><input type="checkbox" id="target-comments" checked> Comments</label>
+      </div>
+      <label class="field">
+        <span>Data source</span>
+        <select id="backend"></select>
+      </label>
+      <details class="hint">
+        <summary>Advanced</summary>
+        <label class="field">
+          <span>Max pages per subreddit &amp; type</span>
+          <input type="number" id="max-pages" min="1" max="2000" value="100">
+        </label>
+        <div class="muted small">Each page is ~100–1000 posts or ~100 comments. Raise this for long custom ranges on busy subreddits.</div>
+      </details>
+    </section>
+
+    <div class="run-bar">
+      <button class="btn primary big" id="btn-run">▶ Search Reddit</button>
+      <button class="btn danger big hidden" id="btn-cancel">■ Cancel</button>
+    </div>
+    <div id="form-error" class="error hidden"></div>
+  </aside>
+
+  <!-- ============================ right: progress + results ============================ -->
+  <section class="panel results-area">
+    <div id="progress" class="card progress hidden">
+      <div class="row space">
+        <div>
+          <div class="progress-title"><span id="progress-status" class="status-dot"></span> <span id="progress-phase">…</span></div>
+          <div id="progress-line" class="muted small"></div>
+        </div>
+        <div class="counters">
+          <div><b id="c-fetched">0</b><span>fetched</span></div>
+          <div><b id="c-matched">0</b><span>matched</span></div>
+          <div><b id="c-new">0</b><span>new</span></div>
+          <div><b id="c-requests">0</b><span>requests</span></div>
+          <div><b id="c-elapsed">0s</b><span>elapsed</span></div>
+        </div>
+      </div>
+      <div class="bar"><div id="progress-bar" class="bar-fill"></div></div>
+      <div id="progress-warnings" class="warnings hidden"></div>
+      <div id="progress-error" class="error hidden"></div>
+      <details class="hint">
+        <summary>Log</summary>
+        <pre id="progress-log" class="log"></pre>
+      </details>
+    </div>
+
+    <div class="card results">
+      <div class="results-toolbar">
+        <div class="results-title">
+          <h2 id="results-heading">Results</h2>
+          <span id="results-count" class="muted"></span>
+        </div>
+        <div class="row gap wrap">
+          <input id="filter-text" type="search" placeholder="Filter results…">
+          <select id="filter-kind">
+            <option value="">Posts &amp; comments</option>
+            <option value="post">Posts only</option>
+            <option value="comment">Comments only</option>
+          </select>
+          <select id="filter-sub"><option value="">All subreddits</option></select>
+          <select id="sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="relevance">Most relevant</option>
+            <option value="score">Highest score</option>
+            <option value="comments">Most comments</option>
+          </select>
+          <label class="check"><input type="checkbox" id="filter-new"> New only</label>
+          <button class="btn small ghost" id="btn-export-csv" disabled>Export CSV</button>
+          <button class="btn small ghost" id="btn-export-json" disabled>Export JSON</button>
+        </div>
+      </div>
+      <div id="results-list" class="results-list">
+        <div class="empty">
+          <div class="empty-icon">🗂️</div>
+          <p>Pick subreddits, keywords and a timeframe, then press <b>Search Reddit</b>.</p>
+          <p class="muted small">Results appear here as they are found. Past searches are under <b>History</b>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============================ modals ============================ -->
+<div id="modal-history" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h2>Search history</h2><button class="btn ghost small modal-close">✕</button></div>
+    <div id="history-list" class="history-list"></div>
+  </div>
+</div>
+
+<div id="modal-settings" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h2>Settings</h2><button class="btn ghost small modal-close">✕</button></div>
+    <h3>Official Reddit API (optional)</h3>
+    <p class="muted small">
+      The default data source (Arctic Shift) needs no login. If you already own Reddit API credentials you can
+      also search through the official API. Since November 2025 Reddit only issues new credentials on request
+      (<a href="https://support.reddithelp.com/hc/en-us/articles/42728983564564-Responsible-Builder-Policy" target="_blank" rel="noopener">Responsible Builder Policy</a>).
+      Credentials are stored locally in <code>.env</code>.
+    </p>
+    <div id="cred-status" class="muted small"></div>
+    <label class="field"><span>Client ID</span><input id="cred-id" type="text" autocomplete="off"></label>
+    <label class="field"><span>Client secret</span><input id="cred-secret" type="password" autocomplete="off" placeholder="(unchanged)"></label>
+    <label class="field"><span>Reddit username <em>(for the User-Agent)</em></span><input id="cred-user" type="text" autocomplete="off"></label>
+    <label class="field"><span>User-Agent <em>(optional)</em></span><input id="cred-ua" type="text" autocomplete="off" placeholder="windows:reddit-crawler:0.1.0 (by /u/you)"></label>
+    <div class="row gap wrap">
+      <button class="btn small" id="btn-cred-save">Save</button>
+      <button class="btn small ghost" id="btn-cred-test">Test connection</button>
+      <button class="btn small ghost" id="btn-cred-clear">Remove</button>
+      <span id="cred-result" class="muted small"></span>
+    </div>
+    <h3 class="danger-title">Data</h3>
+    <p class="muted small">Results are stored in <code>data/crawler.db</code>. Reddit asks that content deleted by its users is not kept indefinitely — delete old runs from History or purge everything here.</p>
+    <button class="btn small danger" id="btn-purge">Delete all runs &amp; results</button>
+  </div>
+</div>
+
+<div id="modal-help" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h2>How it works</h2><button class="btn ghost small modal-close">✕</button></div>
+    <ol class="help">
+      <li><b>Subreddits</b> — type names (with or without <code>r/</code>). Use <i>Find</i> to look names up.</li>
+      <li><b>Keywords</b> — <i>Search phrases</i> are what you are looking for (any one is enough). <i>Must also contain</i> is an extra gate, e.g. <code>website</code>, so that “looking for a developer” alone is not enough. <i>Exclude</i> removes noise like “[for hire]” posts. Save sets to reuse them.</li>
+      <li><b>Timeframe</b> — presets are relative to now; <i>Custom</i> takes an exact local date range. Data comes from the Arctic Shift archive, which mirrors Reddit within seconds and keeps full history, so any range works (wider ranges just take longer).</li>
+      <li><b>Search</b> — every post/comment in the window is downloaded and matched on your machine, so matches are exact and highlighted. Comments on very busy subreddits over wide ranges use a server-side keyword prefilter first.</li>
+      <li><b>Results</b> — filter, sort, open on Reddit, export CSV/JSON. <span class="badge new">NEW</span> marks items never seen in a previous run, so you can re-run daily and look only at what is new.</li>
+    </ol>
+    <h3>Limits to know</h3>
+    <ul class="help">
+      <li>Arctic Shift is a free community archive with no uptime guarantee. When it asks us to slow down the crawl waits automatically.</li>
+      <li>Scores and comment counts for items younger than ~36 hours come from the moment they were posted (usually 1 / 0).</li>
+      <li>The official Reddit API (optional) cannot search comments by keyword and only exposes the newest ~1000 posts/comments per subreddit; the panel warns when a range could not be fully covered.</li>
+      <li>Please use results responsibly: this tool is read-only and meant for personal research and lead discovery.</li>
+    </ul>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
