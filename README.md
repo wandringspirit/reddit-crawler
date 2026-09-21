@@ -226,3 +226,9 @@ The tool is read-only and intended for personal research and lead discovery. Red
 content deleted by its authors is not kept indefinitely – delete old runs from *History* or use
 *Settings → Delete all runs & results* from time to time, and always link back to Reddit (the panel
 does). Do not use it to spam or mass-message people.
+
+---
+
+## License
+
+[MIT](LICENSE)
